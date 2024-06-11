@@ -1,4 +1,7 @@
-﻿using Terraria;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using Terraria;
 using TerrariaApi.Server;
 using TShockAPI;
 
@@ -10,122 +13,212 @@ namespace Trgo
         public override string Name => "Trgo";
         public override string Author => "肝帝熙恩";
         public override string Description => "Trgo小游戏";
+        private long _timerCount;
+
+        public static Dictionary<string, bool> PlayersInTeamMode = new Dictionary<string, bool>();
+        public static Dictionary<string, string> PlayerTeams = new Dictionary<string, string>(); // 存储玩家队伍，红队或蓝队
+
+        private int countdown = -1; // 倒计时初始值，-1表示不在倒计时中
+
         public Trgo(Main game) : base(game)
         {
-
         }
+
         public override void Initialize()
         {
-            Commands.ChatCommands.Add(new Command("trgo.use", trgouse, "trgo"));//注册加入游戏指令
-            Commands.ChatCommands.Add(new Command("trgo.admin", trgoadmin, "trgoadmin"));//注册离开游戏指令
+            Commands.ChatCommands.Add(new Command("trgo.use", TrgoUse, "trgo"));
+            Commands.ChatCommands.Add(new Command("trgo.admin", TrgoAdmin, "trgoadmin"));
+            ServerApi.Hooks.GameUpdate.Register(this, OnUpdate);
         }
-        //两个字典，用来存储玩家是否加入游戏
-        public static Dictionary<string, bool> playersintrgoteam = new Dictionary<string, bool>();//团队死斗模式
-        public static Dictionary<string, bool> playersintrgobomb = new Dictionary<string, bool>();//爆破模式
-        private void trgouse(CommandArgs args)//进入游戏和离开游戏
+
+        private void OnUpdate(EventArgs args)
         {
-            var plr = args.Player;
+            _timerCount++;
+            if (_timerCount % 60 == 0) // 每秒执行一次
+            {
+                if (countdown > 0)
+                {
+                    countdown--;
+                    TShock.Utils.Broadcast($"游戏将在 {countdown} 秒后开始", Microsoft.Xna.Framework.Color.Green);
+                    if (countdown == 0)
+                    {
+                        StartGame();
+                    }
+                }
+                else if (countdown == -1 && PlayersInTeamMode.Values.Count(v => v) >= PlayersInTeamMode.Count / 2)
+                {
+                    countdown = 10;
+                    TShock.Utils.Broadcast("准备人数已达标，游戏将在 10 秒后开始", Microsoft.Xna.Framework.Color.Green);
+                }
+            }
+        }
+
+        private void TrgoUse(CommandArgs args)
+        {
+            var player = args.Player;
+
             if (args.Parameters.Count < 1)
             {
-                args.Player.SendInfoMessage("请输入/trgo help 查看帮助");
+                player.SendInfoMessage("请输入 /trgo help 查看帮助");
                 return;
             }
 
-            switch (args.Parameters[0])
+            switch (args.Parameters[0].ToLower())
             {
                 case "help":
-                    args.Player.SendInfoMessage("/trgo help 查看帮助");
-                    args.Player.SendInfoMessage("/trgo tean 团队死斗模式");
-                    args.Player.SendInfoMessage("/trgo bomb 爆破模式");
+                    player.SendInfoMessage("/trgo help 查看帮助");
+                    player.SendInfoMessage("/trgo team 加入或离开团队死斗模式");
+                    player.SendInfoMessage("/trgo red 准备加入红队");
+                    player.SendInfoMessage("/trgo blue 准备加入蓝队");
                     break;
                 case "team":
-                    if (!playersintrgoteam.ContainsKey(plr.Name))
-                    {
-                        playersintrgoteam.Add(plr.Name, true);
-                    }
-                    else
-                    {
-                        playersintrgoteam.Remove(plr.Name);
-                    }
-                    if(args.Parameters.Count > 1)
-                    {
-                        switch (args.Parameters[1])
-                        {
-                            case "ready":
-                                playersintrgoteam[plr.Name] = playersintrgoteam[plr.Name] ? false : true;//切换准备状态
-                                trgotean();
-                                break;
-                            default:
-                                args.Player.SendInfoMessage("输入/trgo team ready 切换准备状态");
-                                break;
-                        }
-                    }
+                    TogglePlayerInTeamMode(player.Name);
+                    player.SendInfoMessage(PlayersInTeamMode.ContainsKey(player.Name)
+                        ? "你已加入团队死斗模式"
+                        : "你已离开团队死斗模式");
                     break;
-                case "bomb":
-                    if (!playersintrgobomb.ContainsKey(plr.Name))
-                    {
-                        playersintrgobomb.Add(plr.Name, true);
-                    }
-                    else
-                    {
-                        playersintrgobomb.Remove(plr.Name);
-                    }
-                    if (args.Parameters.Count > 1)
-                    {
-                        switch (args.Parameters[1])
-                        {
-                            case "ready":
-                                playersintrgobomb[plr.Name] = playersintrgobomb[plr.Name] ? false : true;//切换
-                                break;
-                            default:
-                                args.Player.SendInfoMessage("输入/trgo bomb ready 切换准备状态");
-                                break;
-                        }
-                    }
+                case "red":
+                    SetPlayerTeam(player.Name, "red");
+                    player.SendInfoMessage("你已准备加入红队");
+                    break;
+                case "blue":
+                    SetPlayerTeam(player.Name, "blue");
+                    player.SendInfoMessage("你已准备加入蓝队");
                     break;
                 default:
-                    args.Player.SendInfoMessage("请输入/trgo help 查看帮助");
+                    player.SendInfoMessage("请输入 /trgo help 查看帮助");
                     break;
             }
         }
 
-        private void trgotean()
+        private void TogglePlayerInTeamMode(string playerName)
         {
-            // 获取加入游戏的玩家总数
-            int joinedCount = playersintrgoteam.Count;
-
-            // 获取已准备的玩家数量，直接根据字典中值为true来计数
-            int readyCount = playersintrgoteam.Count(pair => pair.Value);
-
-            if (joinedCount == 0)
+            if (!PlayersInTeamMode.ContainsKey(playerName))
             {
-                return;
+                PlayersInTeamMode[playerName] = false; // 默认未准备状态
             }
-
-            // 检查准备的玩家数量是否达到可开始游戏的条件（至少一半的玩家已准备）
-            if (readyCount < joinedCount / 2)
+            else
             {
-                return;
+                PlayersInTeamMode.Remove(playerName);
+                PlayerTeams.Remove(playerName);
             }
         }
-        private void trgobomb(CommandArgs args)
+
+        private void SetPlayerTeam(string playerName, string team)
         {
+            if (PlayersInTeamMode.ContainsKey(playerName))
+            {
+                PlayerTeams[playerName] = team;
+            }
+            else
+            {
+                var player = TShock.Players.FirstOrDefault(p => p?.Name == playerName);
+                player?.SendInfoMessage("你需要先加入团队死斗模式");
+            }
+        }
+
+        private void StartGame()
+        {
+            var redTeam = new List<string>();
+            var blueTeam = new List<string>();
+
+            foreach (var player in PlayersInTeamMode.Keys)
+            {
+                if (PlayerTeams.TryGetValue(player, out var team))
+                {
+                    if (team == "red")
+                    {
+                        redTeam.Add(player);
+                    }
+                    else if (team == "blue")
+                    {
+                        blueTeam.Add(player);
+                    }
+                }
+            }
+
+            int totalPlayers = PlayersInTeamMode.Count;
+            int maxTeamSize = totalPlayers % 2 == 0 ? totalPlayers / 2 : (totalPlayers / 2) + 1;
+
+            if (redTeam.Count > maxTeamSize)
+            {
+                RandomlyAssignPlayers(redTeam, blueTeam, maxTeamSize, true);
+            }
+            else if (blueTeam.Count > maxTeamSize)
+            {
+                RandomlyAssignPlayers(blueTeam, redTeam, maxTeamSize, false);
+            }
+            else
+            {
+                AssignRemainingPlayers(redTeam, blueTeam, maxTeamSize);
+            }
+
+            // 传送玩家和设置初始装备
+            foreach (var playerName in redTeam)
+            {
+                var player = TShock.Players.FirstOrDefault(p => p?.Name == playerName);
+                if (player != null)
+                {
+                    player.SetTeam(1); // 红队
+                                       // 传送到红队出生点
+                                       // 设置初始装备
+                }
+            }
+
+            foreach (var playerName in blueTeam)
+            {
+                var player = TShock.Players.FirstOrDefault(p => p?.Name == playerName);
+                if (player != null)
+                {
+                    player.SetTeam(3); // 蓝队
+                                       // 传送到蓝队出生点
+                                       // 设置初始装备
+                }
+            }
+        }
+
+        private void RandomlyAssignPlayers(List<string> fromTeam, List<string> toTeam, int maxTeamSize, bool isRedTeam)
+        {
+            while (fromTeam.Count > maxTeamSize)
+            {
+                var player = fromTeam.Last();
+                fromTeam.Remove(player);
+                toTeam.Add(player);
+                PlayerTeams[player] = isRedTeam ? "blue" : "red";
+            }
+        }
+
+        private void AssignRemainingPlayers(List<string> redTeam, List<string> blueTeam, int maxTeamSize)
+        {
+            var remainingPlayers = PlayersInTeamMode.Keys.Except(redTeam).Except(blueTeam).ToList();
+            Random rand = new Random();
+
+            foreach (var player in remainingPlayers)
+            {
+                if (redTeam.Count < maxTeamSize)
+                {
+                    redTeam.Add(player);
+                    PlayerTeams[player] = "red";
+                }
+                else
+                {
+                    blueTeam.Add(player);
+                    PlayerTeams[player] = "blue";
+                }
+            }
         }
 
 
-
-
-        private void trgoadmin(CommandArgs args)
+        private void TrgoAdmin(CommandArgs args)
         {
-
+            // 管理员指令处理
         }
-
-
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
+                ServerApi.Hooks.GameUpdate.Deregister(this, OnUpdate);
             }
             base.Dispose(disposing);
         }
