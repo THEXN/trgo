@@ -15,7 +15,7 @@ namespace Trgo
         public override string Description => "Trgo小游戏";
         private long _timerCount;
 
-        public static Dictionary<string, bool> PlayersInTeamMode = new Dictionary<string, bool>();
+        public static Dictionary<string, bool> PlayersInTeamMode = new Dictionary<string, bool>();//
         public static Dictionary<string, string> PlayerTeams = new Dictionary<string, string>(); // 存储玩家队伍，红队或蓝队
 
         private int countdown = -1; // 倒计时初始值，-1表示不在倒计时中
@@ -45,7 +45,7 @@ namespace Trgo
                         StartGame();
                     }
                 }
-                else if (countdown == -1 && PlayersInTeamMode.Values.Count(v => v) >= PlayersInTeamMode.Count / 2)
+                else if (countdown == -1 && PlayersInTeamMode.Values.Count(v => v) >= PlayersInTeamMode.Count / 2)// 是否没有游戏正在进行，判断准备人数是否达到总人数的一半
                 {
                     countdown = 10;
                     TShock.Utils.Broadcast("准备人数已达标，游戏将在 10 秒后开始", Microsoft.Xna.Framework.Color.Green);
@@ -73,9 +73,6 @@ namespace Trgo
                     break;
                 case "team":
                     TogglePlayerInTeamMode(player.Name);
-                    player.SendInfoMessage(PlayersInTeamMode.ContainsKey(player.Name)
-                        ? "你已加入团队死斗模式"
-                        : "你已离开团队死斗模式");
                     break;
                 case "red":
                     SetPlayerTeam(player.Name, "red");
@@ -91,16 +88,19 @@ namespace Trgo
             }
         }
 
-        private void TogglePlayerInTeamMode(string playerName)
+        private void TogglePlayerInTeamMode(string playerName)//
         {
             if (!PlayersInTeamMode.ContainsKey(playerName))
             {
-                PlayersInTeamMode[playerName] = false; // 默认未准备状态
+                PlayersInTeamMode.Add(playerName, false); // 默认未准备状态
             }
             else
             {
                 PlayersInTeamMode.Remove(playerName);
-                PlayerTeams.Remove(playerName);
+                if (PlayerTeams.ContainsKey(playerName))
+                {
+                    PlayerTeams.Remove(playerName);
+                }
             }
         }
 
